@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
-    private const ROLE_OPTIONS = ['admin', 'owner', 'manager', 'cashier', 'store_keeper'];
+    private const ROLE_OPTIONS = ['admin', 'owner', 'manager', 'cashier', 'store_keeper', 'waiter', 'kitchen'];
 
     public function index(Request $request)
     {
@@ -140,7 +140,7 @@ class UserController extends Controller
             $data['can_override_gold_rate'] = true;
         }
 
-        if ($role === 'cashier' || $role === 'store_keeper') {
+        if (in_array($role, ['cashier', 'store_keeper', 'waiter', 'kitchen'], true)) {
             $data['can_delete_transactions'] = false;
         }
 

@@ -69,15 +69,13 @@
     <!-- Pagination -->
     <div v-if="meta" class="flex items-center justify-between text-sm text-gray-500">
       <span>Showing {{ meta.from }}–{{ meta.to }} of {{ meta.total }}</span>
-      <div class="flex gap-2">
-        <button @click="page--; load()" :disabled="page <= 1" class="btn-secondary text-xs px-3">← Prev</button>
-        <button @click="page++; load()" :disabled="page >= meta.last_page" class="btn-secondary text-xs px-3">Next →</button>
-      </div>
+      <Pagination :page="page" :last-page="meta.last_page" @change="p => { page = p; load() }" />
     </div>
   </div>
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 

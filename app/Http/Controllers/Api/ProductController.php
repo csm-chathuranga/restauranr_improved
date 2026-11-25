@@ -13,11 +13,14 @@ class ProductController extends Controller
     public function index()
     {
         $user = request()->user();
-        $products = Product::with(['category:id,name', 'supplier:id,name', 'taxSetting:id,name,rate'])
+        $wantsIngredients = request()->boolean('include_ingredients') || request('product_type') === Product::INGREDIENT_TYPE;
+        $products = Product::with(['category:id,name', 'supplier:id,name', 'taxSetting:id,name,rate', 'recipeItems.ingredient:id,stock_quantity'])
             ->withSum(['openBottles as open_bottles_remaining_ml' => fn($q) => $q
                 ->where('status', 'open')
                 ->when(!$user->isAdmin(), fn($q2) => $q2->where('branch_id', $user->branch_id))
             ], 'remaining_volume_ml')
+            // Ingredients are kitchen stock, not menu items; only stock screens ask for them
+            ->when(!$wantsIngredients, fn($q) => $q->where('product_type', '!=', Product::INGREDIENT_TYPE))
             ->when(request('search'), fn($q, $s) => $q->where(function ($inner) use ($s) {
                 $inner->where('name', 'like', "%$s%")
                     ->orWhere('sku', 'like', "%$s%")
@@ -29,6 +32,14 @@ class ProductController extends Controller
             ->when(request('low_stock'), fn($q) => $q->whereColumn('stock_quantity', '<=', 'min_stock_level'))
             ->orderBy('name')
             ->paginate(request('per_page', 20));
+
+        // can_make: servings left from ingredient stock (null when the dish has no recipe)
+        $products->getCollection()->transform(function (Product $p) {
+            $p->setAttribute('can_make', $p->servingsAvailable());
+            $p->makeHidden('recipeItems');
+            return $p;
+        });
+
         return response()->json($products);
     }
 

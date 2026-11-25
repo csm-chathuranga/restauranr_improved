@@ -155,7 +155,7 @@
       </div>
 
       <!-- Page -->
-      <main :class="route.name === 'sales.new' ? 'flex-1 overflow-hidden' : 'flex-1 overflow-auto p-6'"
+      <main :class="route.name === 'sales.new' ? 'flex-1 overflow-hidden' : 'flex-1 overflow-x-hidden overflow-y-auto p-6'"
             class="text-[15px]">
         <router-view />
       </main>
@@ -189,7 +189,7 @@ import {
   ClockIcon, DocumentChartBarIcon, CalendarIcon,
   ReceiptPercentIcon, BeakerIcon, ScaleIcon,
   PresentationChartLineIcon, DocumentTextIcon,
-  ArrowUturnLeftIcon, WalletIcon,
+  ArrowUturnLeftIcon, WalletIcon, Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
 
 const auth      = useAuthStore()
@@ -242,13 +242,15 @@ function toggleSidebarHidden() {
   sidebarHidden.value = !sidebarHidden.value
 }
 
-
 const allNavItems = [
   { to: '/',                 label: 'Dashboard',       icon: HomeIcon,                    feature: 'dashboard' },
   { to: '/products',         label: 'Products',        icon: CubeIcon,                    feature: 'products' },
   { to: '/categories',       label: 'Menu Categories', icon: TagIcon,                     feature: 'menu_categories' },
   { to: '/customers',        label: 'Guests',          icon: UsersIcon,                   feature: 'guests' },
   { to: '/tables',           label: 'Tables',          icon: TableCellsIcon,              feature: 'tables' },
+  { to: '/floor-plan',       label: 'Floor Plan',      icon: Squares2X2Icon,              feature: 'floor_plan' },
+  { to: '/kitchen',          label: 'Kitchen Display', icon: FireIcon,                    feature: 'kitchen_orders' },
+  { to: '/kitchen-stock',    label: 'Kitchen Stock',   icon: BeakerIcon,                  feature: 'ingredients' },
   { to: '/suppliers',        label: 'Suppliers',       icon: TruckIcon,                   feature: 'suppliers' },
   { to: '/sales',            label: 'POS Billing',     icon: ShoppingCartIcon,            feature: 'pos_billing' },
   { to: '/open-bottles',     label: 'Open Bottles',    icon: BeakerIcon,                  feature: 'open_bottles' },
@@ -309,6 +311,9 @@ const pageTitles = {
   categories:    'Menu Categories',
   customers:     'Guests',
   tables:        'Restaurant Tables',
+  'floor-plan':  'Floor Plan',
+  kitchen:       'Kitchen Display',
+  'kitchen-stock': 'Kitchen Stock — Ingredients & Recipes',
   suppliers:     'Suppliers',
   sales:         'POS Billing',
   'sales.new':   'New Bill',

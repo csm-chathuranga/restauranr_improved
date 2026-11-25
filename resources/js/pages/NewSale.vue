@@ -160,19 +160,38 @@
           <span class="text-xs text-blue-200">{{ form.items.filter(i=>i.product_id).length }} items</span>
         </div>
 
+        <!-- Order type tabs -->
+        <div class="flex gap-0 shrink-0 border-b border-gray-200 bg-white">
+          <button v-for="ot in orderTypes" :key="ot.value"
+            @click="form.order_type = ot.value"
+            class="flex-1 py-1.5 text-xs font-semibold transition-colors border-b-2"
+            :class="form.order_type === ot.value
+              ? 'border-amber-500 text-amber-700 bg-amber-50'
+              : 'border-transparent text-gray-400 hover:text-gray-600'"
+          >{{ ot.label }}</button>
+        </div>
+
         <!-- Table + Customer -->
         <div class="px-3 py-2.5 bg-white border-b border-gray-200 shrink-0 space-y-2">
           <div class="grid grid-cols-2 gap-2">
-            <div>
+            <div v-if="form.order_type === 'dine_in'">
               <label class="text-xs font-medium text-gray-500 mb-1 block">Table</label>
-              <select v-model="form.table_number" class="form-input text-sm py-1.5">
-                <option value="">Walk-in</option>
-                <option v-for="t in availableTables" :key="t.id" :value="t.table_number">
-                  {{ t.table_number }}
-                </option>
-              </select>
+              <button
+                type="button"
+                @click="showTablePicker = true"
+                class="w-full form-input text-sm py-1.5 text-left flex items-center justify-between gap-1 transition-colors"
+                :class="form.table_number ? 'bg-amber-50 border-amber-400 text-amber-800 font-semibold' : 'text-gray-400'"
+              >
+                <span>{{ form.table_number || 'Select table…' }}</span>
+                <span v-if="form.table_number" @click.stop="form.table_number = ''" class="text-amber-400 hover:text-red-500 text-base leading-none">×</span>
+                <Squares2X2Icon v-else class="w-3.5 h-3.5 text-gray-300" />
+              </button>
             </div>
-            <div>
+            <div v-if="form.order_type === 'dine_in'">
+              <label class="text-xs font-medium text-gray-500 mb-1 block">Guests</label>
+              <input v-model.number="form.guest_count" type="number" min="1" class="form-input text-sm py-1.5" placeholder="1" @wheel.prevent />
+            </div>
+            <div :class="form.order_type === 'dine_in' ? 'col-span-2' : ''">
               <label class="text-xs font-medium text-gray-500 mb-1 block">Customer</label>
               <div class="flex gap-1">
                 <select v-model="form.customer_id" class="form-input text-sm py-1.5 flex-1 min-w-0">
@@ -189,6 +208,45 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <!-- Waiter selector (dine-in only) -->
+          <div v-if="form.order_type === 'dine_in' && waiters.length">
+            <label class="text-xs font-medium text-gray-500 mb-1 block">Waiter</label>
+            <select v-model="form.waiter_id" class="form-input text-sm py-1.5">
+              <option value="">— Assign waiter —</option>
+              <option v-for="w in waiters" :key="w.id" :value="w.id">{{ w.name }}</option>
+            </select>
+          </div>
+
+          <!-- Delivery fields -->
+          <template v-if="form.order_type === 'delivery'">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs font-medium text-gray-500 mb-1 block">Phone</label>
+                <input v-model="form.delivery_phone" type="tel" placeholder="Delivery phone" class="form-input text-sm py-1.5" />
+              </div>
+              <div>
+                <label class="text-xs font-medium text-gray-500 mb-1 block">Delivery fee</label>
+                <input v-model.number="form.delivery_fee" type="number" min="0" class="form-input text-sm py-1.5" @input="recalc" @wheel.prevent placeholder="0" />
+              </div>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-500 mb-1 block">Address</label>
+              <input v-model="form.delivery_address" type="text" placeholder="Delivery address" class="form-input text-sm py-1.5" />
+            </div>
+          </template>
+
+          <!-- Pickup time -->
+          <div v-if="form.order_type === 'pickup'">
+            <label class="text-xs font-medium text-gray-500 mb-1 block">Pickup time</label>
+            <input v-model="form.pickup_time" type="datetime-local" class="form-input text-sm py-1.5" />
+          </div>
+
+          <!-- Service charge -->
+          <div v-if="form.order_type === 'dine_in'" class="flex items-center gap-2">
+            <label class="text-xs font-medium text-gray-500">Service charge</label>
+            <input v-model.number="form.service_charge" type="number" min="0" class="form-input text-xs py-0.5 w-24 text-center" @input="recalc" @wheel.prevent placeholder="0" />
           </div>
 
           <!-- Quick new customer -->
@@ -360,15 +418,23 @@
                 <span>TOTAL</span>
                 <span v-if="form.discount > 0" class="text-red-500">−{{ lkr(form.discount) }}</span>
                 <span v-if="form.tax > 0" class="text-blue-500">+tax {{ form.tax_rate }}%</span>
+                <span v-if="form.service_charge > 0" class="text-purple-500">+svc</span>
+                <span v-if="form.delivery_fee > 0" class="text-orange-500">+del</span>
                 <span class="text-amber-400">{{ showPricingDetails ? '▲' : '▼' }}</span>
               </div>
               <span class="text-2xl font-black text-amber-800">LKR {{ lkr(total) }}</span>
             </button>
 
-            <!-- Collapsible: subtotal / discount / tax -->
+            <!-- Collapsible: subtotal / discount / tax / service charge / delivery fee -->
             <div v-if="showPricingDetails" class="px-3 pb-2 space-y-1.5 border-t border-gray-100 bg-gray-50">
               <div class="flex justify-between text-xs text-gray-500 pt-1.5">
                 <span>Subtotal</span><span>LKR {{ lkr(subtotal) }}</span>
+              </div>
+              <div v-if="form.service_charge > 0" class="flex justify-between text-xs text-gray-500">
+                <span>Service charge</span><span class="text-blue-500">+LKR {{ lkr(form.service_charge) }}</span>
+              </div>
+              <div v-if="form.delivery_fee > 0" class="flex justify-between text-xs text-gray-500">
+                <span>Delivery fee</span><span class="text-blue-500">+LKR {{ lkr(form.delivery_fee) }}</span>
               </div>
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-1.5">
@@ -552,6 +618,111 @@
       </div>
     </div>
 
+    <!-- ── Table floor-plan picker modal ── -->
+    <div v-if="showTablePicker" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="showTablePicker = false">
+      <div class="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col" style="max-height:85vh">
+        <!-- Modal header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 class="text-base font-bold text-gray-900">Select Table</h3>
+            <p class="text-xs text-gray-400 mt-0.5">Click an available table to assign it to this order</p>
+          </div>
+          <button @click="showTablePicker = false" class="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+        </div>
+
+        <!-- Section tabs -->
+        <div v-if="floorSections.length > 1" class="flex gap-1.5 px-5 pt-3 pb-0 flex-wrap shrink-0">
+          <button
+            v-for="sec in ['All', ...floorSections]" :key="sec"
+            @click="floorActiveSection = sec"
+            class="px-3 py-1 rounded-full text-xs font-semibold transition-colors"
+            :class="floorActiveSection === sec ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+          >{{ sec }}</button>
+        </div>
+
+        <!-- Legend -->
+        <div class="flex items-center gap-4 px-5 py-2 text-xs text-gray-500 border-b border-gray-100 shrink-0">
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-green-500 inline-block"></span>Available</span>
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-orange-500 inline-block"></span>Occupied</span>
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-purple-500 inline-block"></span>Reserved</span>
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-amber-400 inline-block ring-2 ring-amber-300"></span>Selected</span>
+        </div>
+
+        <!-- Floor canvas -->
+        <div class="flex-1 overflow-auto p-5">
+          <div v-if="floorLoading" class="flex items-center justify-center py-16 text-gray-400">
+            <ArrowPathIcon class="w-5 h-5 animate-spin mr-2" /> Loading floor plan…
+          </div>
+          <template v-else>
+            <!-- Grid-based floor plan -->
+            <div
+              v-if="floorTablesWithPos.length"
+              class="relative bg-gray-50 rounded-xl border border-gray-200 overflow-hidden"
+              :style="floorCanvasStyle"
+            >
+              <!-- Grid lines -->
+              <svg class="absolute inset-0 w-full h-full pointer-events-none" style="opacity:0.05">
+                <defs>
+                  <pattern id="fpgrid" width="60" height="60" patternUnits="userSpaceOnUse">
+                    <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#6b7280" stroke-width="1"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#fpgrid)" />
+              </svg>
+
+              <!-- Tables on grid -->
+              <button
+                v-for="table in floorTablesWithPos"
+                :key="table.id"
+                type="button"
+                @click="pickTable(table)"
+                :disabled="table.status === 'occupied' || table.status === 'maintenance'"
+                class="absolute flex flex-col items-center justify-center font-bold text-white text-xs transition-all shadow-md disabled:cursor-not-allowed"
+                :class="[
+                  floorTableClass(table),
+                  table.shape === 'circle' ? 'rounded-full' : 'rounded-xl',
+                  form.table_number === table.table_number ? 'ring-4 ring-amber-300 scale-110 z-10' : 'hover:scale-105 hover:z-10'
+                ]"
+                :style="floorTableStyle(table)"
+                :title="table.table_number + ' · ' + table.capacity + ' seats · ' + table.status"
+              >
+                <span class="text-xs font-black leading-tight">{{ table.table_number }}</span>
+                <span class="text-[9px] opacity-80">{{ table.capacity }}p</span>
+                <span v-if="table.active_sale" class="text-[8px] opacity-90 leading-none">{{ lkr(table.active_sale.total) }}</span>
+              </button>
+            </div>
+
+            <!-- Tables without positions (card grid) -->
+            <div v-if="floorTablesWithoutPos.length" :class="floorTablesWithPos.length ? 'mt-5' : ''">
+              <p v-if="floorTablesWithPos.length" class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-3">Other tables</p>
+              <div class="flex flex-wrap gap-2.5">
+                <button
+                  v-for="table in floorTablesWithoutPos"
+                  :key="table.id"
+                  type="button"
+                  @click="pickTable(table)"
+                  :disabled="table.status === 'occupied' || table.status === 'maintenance'"
+                  class="flex flex-col items-center justify-center w-20 h-20 rounded-xl font-bold text-white text-xs shadow-md transition-all disabled:cursor-not-allowed"
+                  :class="[
+                    floorTableClass(table),
+                    form.table_number === table.table_number ? 'ring-4 ring-amber-300 scale-110' : 'hover:scale-105'
+                  ]"
+                  :title="table.table_number + ' · ' + table.capacity + ' seats · ' + table.status"
+                >
+                  <span class="text-xs font-black">{{ table.table_number }}</span>
+                  <span class="text-[9px] opacity-80">{{ table.capacity }}p</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="!floorTablesWithPos.length && !floorTablesWithoutPos.length" class="text-center py-12 text-gray-400 text-sm">
+              No tables found. Add tables in the Tables page.
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
     <!-- Open bottle picker modal -->
     <div v-if="openBottlePicker.show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="openBottlePicker.show = false">
       <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
@@ -727,7 +898,7 @@ import {
   ArrowLeftIcon, PlusIcon, XMarkIcon, TrashIcon,
   ShoppingCartIcon, CheckCircleIcon, ArrowPathIcon,
   ExclamationTriangleIcon, QrCodeIcon, MagnifyingGlassIcon, ShoppingBagIcon,
-  QuestionMarkCircleIcon,
+  QuestionMarkCircleIcon, Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -738,10 +909,78 @@ const products        = ref([])
 const customers       = ref([])
 const availableTables = ref([])
 const taxes           = ref([])
+const waiters         = ref([])
 const draftBills      = ref([])
 const loadingDraft    = ref(false)
 const refreshingDrafts = ref(false)
 const activeDraftId   = ref(null)
+
+const orderTypes = [
+  { value: 'dine_in',   label: 'Dine-in' },
+  { value: 'takeaway',  label: 'Takeaway' },
+  { value: 'pickup',    label: 'Pickup' },
+  { value: 'delivery',  label: 'Delivery' },
+]
+
+// ── Floor plan picker ──────────────────────────────────
+const showTablePicker    = ref(false)
+const floorData          = ref({})
+const floorLoading       = ref(false)
+const floorActiveSection = ref('All')
+const FP_CELL = 56   // px per grid unit in the picker
+
+const floorSections = computed(() => Object.keys(floorData.value).filter(Boolean))
+
+const floorAllTables = computed(() => {
+  const all = Object.values(floorData.value).flat()
+  if (floorActiveSection.value === 'All') return all
+  return all.filter(t => t.section === floorActiveSection.value)
+})
+
+const floorTablesWithPos    = computed(() => floorAllTables.value.filter(t => t.pos_x != null && t.pos_y != null))
+const floorTablesWithoutPos = computed(() => floorAllTables.value.filter(t => t.pos_x == null || t.pos_y == null))
+
+const floorCanvasStyle = computed(() => {
+  if (!floorTablesWithPos.value.length) return { width: '600px', height: '300px' }
+  const maxX = Math.max(...floorTablesWithPos.value.map(t => (t.pos_x || 0) + (t.width || 2))) * FP_CELL + 32
+  const maxY = Math.max(...floorTablesWithPos.value.map(t => (t.pos_y || 0) + (t.height || 2))) * FP_CELL + 32
+  return { width: Math.max(maxX, 600) + 'px', height: Math.max(maxY, 300) + 'px' }
+})
+
+function floorTableStyle(table) {
+  const x = (table.pos_x || 0) * FP_CELL + 16
+  const y = (table.pos_y || 0) * FP_CELL + 16
+  const w = (table.width  || 2) * FP_CELL - 6
+  const h = (table.height || 2) * FP_CELL - 6
+  return { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' }
+}
+
+function floorTableClass(table) {
+  if (form.table_number === table.table_number) return 'bg-amber-400'
+  return {
+    available:   'bg-green-500 hover:bg-green-600',
+    occupied:    'bg-orange-500 opacity-60',
+    reserved:    'bg-purple-500 opacity-70',
+    maintenance: 'bg-gray-400 opacity-50',
+  }[table.status] ?? 'bg-gray-400'
+}
+
+function pickTable(table) {
+  if (table.status === 'occupied' || table.status === 'maintenance') return
+  form.table_number = table.table_number
+  showTablePicker.value = false
+}
+
+async function loadFloorPlan() {
+  if (Object.keys(floorData.value).length) return   // already loaded
+  floorLoading.value = true
+  try {
+    const { data } = await axios.get('/api/tables/floor-plan')
+    floorData.value = data
+  } finally { floorLoading.value = false }
+}
+
+watch(showTablePicker, (open) => { if (open) loadFloorPlan() })
 
 // Product browser state
 const activeCategory    = ref('All')
@@ -754,6 +993,10 @@ const form = reactive({
   customer_id: '', payment_method: 'cash', payment_status: 'paid',
   discount: 0, tax: 0, tax_rate: 0, amount_paid: 0, notes: '',
   table_number: '', status: 'completed', card_reference: '',
+  order_type: 'dine_in', waiter_id: '', guest_count: 1,
+  service_charge: 0,
+  delivery_phone: '', delivery_address: '', delivery_fee: 0,
+  pickup_time: '',
   items: [],
 })
 const selectedTaxId  = ref('')
@@ -889,7 +1132,7 @@ watch(gridProducts, () => { gridFocusIndex.value = -1 })
 const selectedCustomer = computed(() => customers.value.find(c => c.id == form.customer_id) ?? null)
 
 const subtotal   = computed(() => form.items.reduce((s, i) => s + (i._lineTotal || 0), 0))
-const total      = computed(() => Math.max(0, subtotal.value - (form.discount || 0) + (form.tax || 0)))
+const total      = computed(() => Math.max(0, subtotal.value - (form.discount || 0) + (form.tax || 0) + (form.service_charge || 0) + (form.delivery_fee || 0)))
 const totalPaid  = computed(() => splitPayment.value
   ? (Number(splitCash.value || 0) + Number(splitCard.value || 0))
   : Number(form.amount_paid || 0))
@@ -1051,6 +1294,14 @@ function resetForm() {
   form.table_number      = ''
   form.status            = 'completed'
   form.card_reference    = ''
+  form.order_type        = 'dine_in'
+  form.waiter_id         = ''
+  form.guest_count       = 1
+  form.service_charge    = 0
+  form.delivery_phone    = ''
+  form.delivery_address  = ''
+  form.delivery_fee      = 0
+  form.pickup_time       = ''
   form.items             = []
   splitPayment.value        = false
   splitCash.value           = 0
@@ -1090,6 +1341,14 @@ async function loadDraft(draft) {
     form.amount_paid      = 0
     form.notes            = data.notes || ''
     form.table_number     = data.table_number || ''
+    form.order_type       = data.order_type || 'dine_in'
+    form.waiter_id        = data.waiter_id || ''
+    form.guest_count      = data.guest_count || 1
+    form.service_charge   = data.service_charge || 0
+    form.delivery_phone   = data.delivery_phone || ''
+    form.delivery_address = data.delivery_address || ''
+    form.delivery_fee     = data.delivery_fee || 0
+    form.pickup_time      = data.pickup_time || ''
     form.items = (data.items || []).map(si => ({
       product_id:            si.product_id,
       product_search:        si.product?.name || '',
@@ -1213,17 +1472,25 @@ async function submit(billStatus) {
     ].filter(p => p.amount > 0) : null
 
     const payload = {
-      customer_id:    form.customer_id || null,
-      payment_method: isSplit ? 'other' : form.payment_method,
-      payment_status: billStatus === 'draft' ? 'pending' : form.payment_status,
-      discount:       form.discount,
-      tax:            form.tax,
-      tax_rate:       form.tax_rate,
-      amount_paid:    billStatus === 'draft' ? 0 : (isSplit ? totalPaid.value : Number(form.amount_paid || 0)),
-      status:         billStatus,
-      table_number:   form.table_number || null,
-      notes:          form.notes,
-      card_reference: form.payment_method === 'card' && !isSplit ? (form.card_reference || null) : null,
+      customer_id:      form.customer_id || null,
+      payment_method:   isSplit ? 'other' : form.payment_method,
+      payment_status:   billStatus === 'draft' ? 'pending' : form.payment_status,
+      discount:         form.discount,
+      tax:              form.tax,
+      tax_rate:         form.tax_rate,
+      amount_paid:      billStatus === 'draft' ? 0 : (isSplit ? totalPaid.value : Number(form.amount_paid || 0)),
+      status:           billStatus,
+      table_number:     form.table_number || null,
+      notes:            form.notes,
+      card_reference:   form.payment_method === 'card' && !isSplit ? (form.card_reference || null) : null,
+      order_type:       form.order_type,
+      waiter_id:        form.order_type === 'dine_in' ? (form.waiter_id || null) : null,
+      guest_count:      form.order_type === 'dine_in' ? (form.guest_count || 1) : null,
+      service_charge:   form.order_type === 'dine_in' ? (form.service_charge || 0) : 0,
+      delivery_phone:   form.order_type === 'delivery' ? (form.delivery_phone || null) : null,
+      delivery_address: form.order_type === 'delivery' ? (form.delivery_address || null) : null,
+      delivery_fee:     form.order_type === 'delivery' ? (form.delivery_fee || 0) : 0,
+      pickup_time:      form.order_type === 'pickup' ? (form.pickup_time || null) : null,
       ...(splitPayments ? { payments: splitPayments } : {}),
       items: form.items.filter(i => i.product_id).map(i => ({
         product_id:            i.product_id,
@@ -1299,6 +1566,7 @@ function handleKeydown(e) {
 
   // ── Escape: close modals / blur ──
   if (e.key === 'Escape') {
+    if (showTablePicker.value)  { showTablePicker.value = false; return }
     if (openBottlePicker.show) { openBottlePicker.show = false; return }
     if (scannerOpen.value)     { closeScanner(); return }
     if (showKbHelp.value)      { showKbHelp.value = false; return }
@@ -1417,18 +1685,20 @@ function lkr(val) {
 }
 
 onMounted(async () => {
-  const [p, c, t, tb, drafts] = await Promise.all([
+  const [p, c, t, tb, drafts, wu] = await Promise.all([
     axios.get('/api/products', { params: { per_page: 1000 } }),
     axios.get('/api/customers/all'),
     axios.get('/api/tax-settings'),
     axios.get('/api/tables/all'),
     axios.get('/api/sales', { params: { status: 'draft', per_page: 50 } }),
+    axios.get('/api/users', { params: { role: 'waiter', per_page: 100 } }),
   ])
   products.value        = p.data.data
   customers.value       = c.data
   taxes.value           = t.data.filter(x => x.is_active)
   availableTables.value = tb.data
   draftBills.value      = drafts.data.data
+  waiters.value         = (wu.data.data || []).filter(u => u.role === 'waiter')
 
   // Default to Liquor category if it exists
   const hasLiquor = products.value.some(p => p.category?.name === 'Liquor')

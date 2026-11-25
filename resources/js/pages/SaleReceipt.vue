@@ -11,6 +11,11 @@
         <span class="text-sm font-medium text-gray-700">{{ sale?.invoice_number }}</span>
       </div>
       <div class="flex gap-2">
+        <!-- Receive payment — for held (draft) bills awaiting payment -->
+        <button v-if="sale && sale.status === 'draft'" @click="openPaymentModal"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium text-sm shadow-sm transition-colors">
+          <CreditCardIcon class="w-4 h-4" /> Receive Payment
+        </button>
         <!-- Change Payment button — only for completed sales -->
         <button v-if="sale && sale.status === 'completed'" @click="openPaymentModal"
           class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg font-medium text-sm shadow-sm transition-colors">
@@ -41,7 +46,7 @@
     <Teleport to="body">
       <div v-if="showPaymentModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 no-print">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
-          <h2 class="text-base font-semibold text-gray-800 mb-4">Change Payment Method</h2>
+          <h2 class="text-base font-semibold text-gray-800 mb-4">{{ sale?.status === 'draft' ? 'Receive Payment' : 'Change Payment Method' }}</h2>
 
           <div class="space-y-3">
             <label class="block text-sm text-gray-600">Payment Method</label>
@@ -93,7 +98,7 @@
             </button>
             <button @click="savePaymentChange" :disabled="savingPayment"
               class="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-medium">
-              {{ savingPayment ? 'Saving…' : 'Save & Reprint' }}
+              {{ savingPayment ? 'Saving…' : (sale?.status === 'draft' ? 'Mark Paid & Print' : 'Save & Reprint') }}
             </button>
           </div>
         </div>
@@ -386,6 +391,7 @@ async function savePaymentChange() {
 
   savingPayment.value = true
   try {
+    const isDraft = sale.value.status === 'draft'
     let payload
 
     if (newPaymentMethod.value === 'split') {
@@ -400,7 +406,41 @@ async function savePaymentChange() {
       }
     }
 
-    const { data } = await axios.patch(`/api/sales/${sale.value.id}/payment`, payload)
+    let data
+    if (isDraft) {
+      // Settling a held bill: complete it (stock, KOT, accounting) and free its table
+      const s = sale.value
+      const settle = {
+        ...payload,
+        amount_paid:    payload.amount_paid ?? Number(s.total),
+        payment_status: 'paid',
+        status:         'completed',
+        customer_id:    s.customer_id || null,
+        discount:       Number(s.discount || 0),
+        tax:            Number(s.tax || 0),
+        tax_rate:       Number(s.tax_rate || 0),
+        service_charge: Number(s.service_charge || 0),
+        table_number:   s.table_number || null,
+        notes:          s.notes || null,
+        order_type:     s.order_type || null,
+        waiter_id:      s.waiter_id || null,
+        guest_count:    s.guest_count || null,
+        items: (s.items || []).map(i => ({
+          product_id:            i.product_id,
+          quantity:              Number(i.quantity),
+          unit_price:            Number(i.unit_price),
+          discount:              Number(i.discount || 0),
+          serving_ml:            Number(i.serving_ml || 0),
+          open_bottle_id:        i.open_bottle_id || null,
+          empty_bottle_returned: false,
+          bottle_deposit_amount: Number(i.product?.bottle_deposit_amount || 0),
+        })),
+      }
+      ;({ data } = await axios.put(`/api/sales/${s.id}`, settle))
+      localStorage.setItem('pos_last_receipt_id', String(s.id))
+    } else {
+      ;({ data } = await axios.patch(`/api/sales/${sale.value.id}/payment`, payload))
+    }
     sale.value = data
     showPaymentModal.value = false
     await nextTick()

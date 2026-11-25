@@ -83,10 +83,7 @@
       </div>
       <div class="px-4 py-3 border-t flex items-center justify-between text-sm text-gray-600">
         <span>{{ products.from || 0 }}-{{ products.to || 0 }} of {{ products.total || 0 }}</span>
-        <div class="flex gap-2">
-          <button @click="prev" :disabled="page <= 1" class="btn-secondary py-1 px-3 text-xs disabled:opacity-40">Prev</button>
-          <button @click="next" :disabled="page >= (products.last_page || 1)" class="btn-secondary py-1 px-3 text-xs disabled:opacity-40">Next</button>
-        </div>
+        <Pagination :page="page" :last-page="products.last_page || 1" @change="p => { page = p; reload() }" />
       </div>
     </div>
 
@@ -95,6 +92,7 @@
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 
@@ -216,17 +214,6 @@ async function saveAll() {
   }
 }
 
-function prev() {
-  if (page.value <= 1) return
-  page.value -= 1
-  reload()
-}
-
-function next() {
-  if (page.value >= (products.value.last_page || 1)) return
-  page.value += 1
-  reload()
-}
 
 onMounted(async () => {
   const [categoryRes] = await Promise.all([

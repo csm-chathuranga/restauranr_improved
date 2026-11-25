@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\KitchenOrderController;
 use App\Http\Controllers\Api\RoleFeaturesController;
 use App\Http\Controllers\Api\AccountingController;
 use App\Http\Controllers\Api\BottleDepositController;
@@ -71,10 +72,30 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/categories/all',  [CategoryController::class, 'all']);
     Route::get('/suppliers/all',   [SupplierController::class, 'all']);
     Route::get('/customers/all',   [CustomerController::class, 'all']);
-    Route::get('/tables/all',      [TableController::class, 'all']);
+    Route::get('/tables/all',          [TableController::class, 'all']);
+    Route::get('/tables/floor-plan',   [TableController::class, 'floorPlan']);
+    Route::patch('/tables/positions',  [TableController::class, 'updatePositions']);
+    Route::get('/waiters', function (Request $request) {
+        $user = $request->user();
+        return \App\Models\User::where('role', 'waiter')
+            ->when(!$user->isAdmin(), fn($q) => $q->where('branch_id', $user->branch_id))
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    });
 
     // CRUD resources
     Route::apiResource('categories', CategoryController::class);
+
+    // Kitchen stock: ingredients, recipes and usage
+    Route::get('/ingredients',                      [\App\Http\Controllers\Api\IngredientController::class, 'index']);
+    Route::post('/ingredients',                     [\App\Http\Controllers\Api\IngredientController::class, 'store']);
+    Route::put('/ingredients/{ingredient}',         [\App\Http\Controllers\Api\IngredientController::class, 'update']);
+    Route::post('/ingredients/{ingredient}/stock',  [\App\Http\Controllers\Api\IngredientController::class, 'stock']);
+    Route::delete('/ingredients/{ingredient}',      [\App\Http\Controllers\Api\IngredientController::class, 'destroy']);
+    Route::get('/recipes',                          [\App\Http\Controllers\Api\RecipeController::class, 'index']);
+    Route::put('/recipes/{product}',                [\App\Http\Controllers\Api\RecipeController::class, 'update']);
+    Route::get('/reports/ingredient-usage',         [\App\Http\Controllers\Api\IngredientReportController::class, 'usage']);
     Route::apiResource('suppliers',  SupplierController::class);
     Route::apiResource('products',   ProductController::class);
     Route::apiResource('customers',  CustomerController::class);
@@ -90,8 +111,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/cashier-shifts/cash-outs',         [CashierShiftController::class, 'cashOuts']);
 
     Route::apiResource('sales',      SaleController::class)->except(['update']);
-    Route::put('/sales/{sale}',          [SaleController::class, 'update']); // Draft bill updates
-    Route::patch('/sales/{sale}/payment',[SaleController::class, 'updatePayment']); // Change payment method post-completion
+    Route::put('/sales/{sale}',                     [SaleController::class, 'update']);
+    Route::patch('/sales/{sale}/payment',           [SaleController::class, 'updatePayment']);
+    Route::patch('/sales/{sale}/delivery-status',   [SaleController::class, 'updateDeliveryStatus']);
+    Route::post('/sales/{sale}/transfer',           [SaleController::class, 'transfer']);
+    Route::post('/sales/{sale}/merge',              [SaleController::class, 'merge']);
+    Route::post('/sales/{sale}/split',              [SaleController::class, 'split']);
     Route::apiResource('purchases',  PurchaseController::class)->except(['update']);
     Route::patch('/purchases/{purchase}/status', [PurchaseController::class, 'updateStatus']);
 
@@ -194,6 +219,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/scrap-items/convert-product',         [ScrapItemController::class, 'convertProduct']);
     Route::put('/scrap-items/{scrapItem}',              [ScrapItemController::class, 'update']);
     Route::delete('/scrap-items/{scrapItem}',           [ScrapItemController::class, 'destroy']);
+
+    // Kitchen Orders (KOT)
+    Route::get('/kitchen/orders',                                                   [KitchenOrderController::class, 'index']);
+    Route::get('/kitchen/orders/{kitchenOrder}',                                    [KitchenOrderController::class, 'show']);
+    Route::patch('/kitchen/orders/{kitchenOrder}/status',                           [KitchenOrderController::class, 'updateStatus']);
+    Route::post('/kitchen/orders/{kitchenOrder}/priority',                          [KitchenOrderController::class, 'togglePriority']);
+    Route::post('/kitchen/orders/{kitchenOrder}/reprint',                           [KitchenOrderController::class, 'reprint']);
+    Route::delete('/kitchen/orders/{kitchenOrder}/items/{item}',                    [KitchenOrderController::class, 'voidItem']);
 
     // Hotel / Room rental (separate from POS)
     Route::prefix('hotel')->group(function () {

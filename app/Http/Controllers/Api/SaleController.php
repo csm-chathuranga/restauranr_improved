@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\KitchenOrderController;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\BottleDeposit;
@@ -12,7 +13,9 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SalePayment;
+use App\Models\Table;
 use App\Support\AccountingService;
+use App\Support\RecipeStock;
 use App\Support\StockLedger;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -114,6 +117,14 @@ class SaleController extends Controller
             'card_reference'           => 'nullable|string|max:100',
             'notes'                    => 'nullable|string',
             'sold_at'                  => 'nullable|date',
+            'order_type'               => 'nullable|in:dine_in,takeaway,pickup,delivery',
+            'waiter_id'                => 'nullable|exists:users,id',
+            'guest_count'              => 'nullable|integer|min:1',
+            'service_charge'           => 'nullable|numeric|min:0',
+            'pickup_time'              => 'nullable|date',
+            'delivery_phone'           => 'nullable|string|max:30',
+            'delivery_address'         => 'nullable|string',
+            'delivery_fee'             => 'nullable|numeric|min:0',
         ]);
 
         $data['items'] = array_map(fn($item) => [
@@ -195,9 +206,11 @@ class SaleController extends Controller
                 $itemData[] = compact('product', 'qty', 'unitPrice', 'itemDisc', 'lineTotal', 'goldV', 'gemV', 'mc', 'wastage', 'depositCollected', 'item');
             }
 
-            $discount = $data['discount'] ?? 0;
-            $tax      = $data['tax'] ?? 0;
-            $total    = $subtotal - $discount + $tax;
+            $discount      = $data['discount'] ?? 0;
+            $tax           = $data['tax'] ?? 0;
+            $serviceCharge = $data['service_charge'] ?? 0;
+            $deliveryFee   = $data['delivery_fee'] ?? 0;
+            $total         = $subtotal - $discount + $tax + $serviceCharge + $deliveryFee;
             $payments = $this->normalizePayments($data, $isDraft);
             $amountPaid = $isDraft ? 0 : round((float) $payments->sum('amount'), 2);
             $paymentStatus = $isDraft
@@ -220,6 +233,18 @@ class SaleController extends Controller
             $invNext    = $lastInv ? ((int) substr($lastInv, -4)) + 1 : 1;
             $invoiceNumber = $invPrefix . str_pad($invNext, 4, '0', STR_PAD_LEFT);
 
+            // Auto sequence for takeaway / pickup
+            $orderType = $data['order_type'] ?? 'dine_in';
+            $sequenceNumber = null;
+            if (in_array($orderType, ['takeaway', 'pickup'], true)) {
+                $seqPrefix = strtoupper(substr($orderType, 0, 2)) . '-' . now()->format('Ymd') . '-';
+                $lastSeq   = Sale::whereDate('created_at', today())
+                    ->where('sequence_number', 'like', $seqPrefix . '%')
+                    ->max('sequence_number');
+                $seqNext       = $lastSeq ? ((int) substr($lastSeq, -3)) + 1 : 1;
+                $sequenceNumber = $seqPrefix . str_pad($seqNext, 3, '0', STR_PAD_LEFT);
+            }
+
             $sale = Sale::create([
                 'branch_id'             => $request->user()->branch_id,
                 'invoice_number'        => $invoiceNumber,
@@ -229,6 +254,7 @@ class SaleController extends Controller
                 'discount'              => $discount,
                 'tax'                   => $tax,
                 'tax_rate'              => $data['tax_rate'] ?? 0,
+                'service_charge'        => $serviceCharge,
                 'total'                 => $total,
                 'payment_method'        => $paymentMethod,
                 'card_reference'        => ($paymentMethod === 'card') ? ($data['card_reference'] ?? null) : null,
@@ -238,6 +264,15 @@ class SaleController extends Controller
                 'table_number'          => $data['table_number'] ?? null,
                 'notes'                 => $data['notes'] ?? null,
                 'sold_at'               => !empty($data['sold_at']) ? Carbon::parse($data['sold_at']) : now(),
+                'order_type'            => $orderType,
+                'waiter_id'             => $data['waiter_id'] ?? ($request->user()->role === 'waiter' ? $request->user()->id : null),
+                'guest_count'           => $data['guest_count'] ?? null,
+                'sequence_number'       => $sequenceNumber,
+                'pickup_time'           => isset($data['pickup_time']) ? Carbon::parse($data['pickup_time']) : null,
+                'delivery_phone'        => $data['delivery_phone'] ?? null,
+                'delivery_address'      => $data['delivery_address'] ?? null,
+                'delivery_fee'          => $deliveryFee,
+                'delivery_status'       => $orderType === 'delivery' ? 'pending' : null,
             ]);
 
             $this->syncPayments($sale, $payments);
@@ -300,7 +335,10 @@ class SaleController extends Controller
 
             if (!$isDraft) {
                 AccountingService::postSale($sale->loadMissing('items.product'));
+                KitchenOrderController::createForSale($sale);
+                RecipeStock::deductForSale($sale, $request->user()->id, $request->user()->branch_id);
             }
+            $this->syncTableStatus($sale, !$isDraft);
 
             AuditLog::record('sale_created', "Sale {$sale->invoice_number} — LKR {$total}", $sale);
 
@@ -513,6 +551,14 @@ class SaleController extends Controller
             'payments.*.payment_method'=> 'required_with:payments|in:cash,card,bank_transfer,cheque,other',
             'payments.*.amount'        => 'required_with:payments|numeric|min:0.01',
             'payments.*.notes'         => 'nullable|string|max:255',
+            'order_type'               => 'nullable|in:dine_in,takeaway,pickup,delivery',
+            'waiter_id'                => 'nullable|exists:users,id',
+            'guest_count'              => 'nullable|integer|min:1',
+            'service_charge'           => 'nullable|numeric|min:0',
+            'pickup_time'              => 'nullable|date',
+            'delivery_phone'           => 'nullable|string|max:30',
+            'delivery_address'         => 'nullable|string',
+            'delivery_fee'             => 'nullable|numeric|min:0',
         ]);
 
         $data['items'] = array_map(fn($item) => [
@@ -524,8 +570,10 @@ class SaleController extends Controller
 
         DB::beginTransaction();
         try {
-            $discount = $data['discount'] ?? 0;
-            $tax      = $data['tax'] ?? 0;
+            $discount      = $data['discount'] ?? 0;
+            $tax           = $data['tax'] ?? 0;
+            $serviceCharge = $data['service_charge'] ?? $sale->service_charge ?? 0;
+            $deliveryFee   = $data['delivery_fee'] ?? $sale->delivery_fee ?? 0;
             $subtotal = 0;
 
             $itemData = [];
@@ -556,7 +604,7 @@ class SaleController extends Controller
                 $itemData[] = compact('product', 'qty', 'unitPrice', 'itemDisc', 'lineTotal', 'depositCollected', 'item');
             }
 
-            $total         = $subtotal - $discount + $tax;
+            $total         = $subtotal - $discount + $tax + $serviceCharge + $deliveryFee;
             $payments      = $this->normalizePayments($data, !$isCompleting);
             $amountPaid    = $isCompleting ? round((float) $payments->sum('amount'), 2) : 0;
             $paymentStatus = $isCompleting
@@ -572,20 +620,28 @@ class SaleController extends Controller
             }
 
             $sale->update([
-                'customer_id'    => $data['customer_id'] ?? null,
-                'subtotal'       => $subtotal,
-                'discount'       => $discount,
-                'tax'            => $tax,
-                'tax_rate'       => $data['tax_rate'] ?? 0,
-                'total'          => $total,
-                'table_number'   => $data['table_number'] ?? null,
-                'card_reference' => ($paymentMethod === 'card') ? ($data['card_reference'] ?? null) : null,
-                'notes'          => $data['notes'] ?? null,
-                'status'         => $isCompleting ? 'completed' : 'draft',
-                'payment_method' => $paymentMethod,
-                'payment_status' => $paymentStatus,
-                'amount_paid'    => $amountPaid,
-                'sold_at'        => $isCompleting ? now() : $sale->sold_at,
+                'customer_id'     => $data['customer_id'] ?? null,
+                'subtotal'        => $subtotal,
+                'discount'        => $discount,
+                'tax'             => $tax,
+                'tax_rate'        => $data['tax_rate'] ?? 0,
+                'service_charge'  => $serviceCharge,
+                'total'           => $total,
+                'table_number'    => $data['table_number'] ?? null,
+                'card_reference'  => ($paymentMethod === 'card') ? ($data['card_reference'] ?? null) : null,
+                'notes'           => $data['notes'] ?? null,
+                'status'          => $isCompleting ? 'completed' : 'draft',
+                'payment_method'  => $paymentMethod,
+                'payment_status'  => $paymentStatus,
+                'amount_paid'     => $amountPaid,
+                'sold_at'         => $isCompleting ? now() : $sale->sold_at,
+                'order_type'      => $data['order_type'] ?? $sale->order_type,
+                'waiter_id'       => ($data['waiter_id'] ?? $sale->waiter_id) ?: ($request->user()->role === 'waiter' ? $request->user()->id : null),
+                'guest_count'     => array_key_exists('guest_count', $data) ? $data['guest_count'] : $sale->guest_count,
+                'pickup_time'     => isset($data['pickup_time']) ? Carbon::parse($data['pickup_time']) : $sale->pickup_time,
+                'delivery_phone'  => $data['delivery_phone'] ?? $sale->delivery_phone,
+                'delivery_address'=> $data['delivery_address'] ?? $sale->delivery_address,
+                'delivery_fee'    => $deliveryFee,
             ]);
 
             $this->syncPayments($sale, $payments);
@@ -643,7 +699,10 @@ class SaleController extends Controller
 
             if ($isCompleting) {
                 AccountingService::postSale($sale->loadMissing('items.product'));
+                KitchenOrderController::createForSale($sale);
+                RecipeStock::deductForSale($sale, $request->user()->id, $request->user()->branch_id);
             }
+            $this->syncTableStatus($sale, $isCompleting);
 
             AuditLog::record(
                 $isCompleting ? 'sale_completed' : 'draft_updated',
@@ -656,6 +715,26 @@ class SaleController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    // A held (draft) bill occupies its table; paying the bill frees it again
+    private function syncTableStatus(Sale $sale, bool $completed): void
+    {
+        if (!$sale->table_number) return;
+
+        $table = Table::where('branch_id', $sale->branch_id)
+            ->where('table_number', $sale->table_number);
+
+        if ($completed) {
+            $stillHeld = Sale::where('status', 'draft')
+                ->where('branch_id', $sale->branch_id)
+                ->where('table_number', $sale->table_number)
+                ->where('id', '!=', $sale->id)
+                ->exists();
+            $table->where('status', 'occupied')->update(['status' => $stillHeld ? 'occupied' : 'available']);
+        } else {
+            $table->where('status', 'available')->update(['status' => 'occupied']);
         }
     }
 
@@ -672,6 +751,7 @@ class SaleController extends Controller
                     $item->product->increment('stock_quantity', $item->quantity);
                 }
             }
+            RecipeStock::restoreForSale($sale, request()->user()->id, request()->user()->branch_id);
             AuditLog::record('sale_deleted', "Sale {$sale->invoice_number} deleted, stock restored", $sale,
                 ['invoice' => $sale->invoice_number, 'total' => $sale->total]);
             $sale->delete();
@@ -725,6 +805,229 @@ class SaleController extends Controller
         AuditLog::record('payment_method_changed', "Payment method updated to {$newMethod} on {$sale->invoice_number}", $sale);
 
         return response()->json($sale->load(['items.product', 'customer', 'user', 'payments']));
+    }
+
+    public function transfer(Request $request, Sale $sale)
+    {
+        $this->authorizeBranch($sale->branch_id);
+
+        if ($sale->status !== 'draft') {
+            return response()->json(['message' => 'Only draft orders can be transferred.'], 422);
+        }
+
+        $data = $request->validate([
+            'to_table_number' => 'required|string|max:50|exists:tables,table_number',
+        ]);
+
+        $toTable = Table::where('table_number', $data['to_table_number'])
+            ->where('branch_id', $sale->branch_id)
+            ->first();
+
+        if (!$toTable) {
+            return response()->json(['message' => 'Target table not found in this branch.'], 422);
+        }
+
+        $activeSaleOnTarget = Sale::where('branch_id', $sale->branch_id)
+            ->where('table_number', $data['to_table_number'])
+            ->where('status', 'draft')
+            ->exists();
+
+        if ($activeSaleOnTarget) {
+            return response()->json(['message' => 'Target table already has an active order. Use merge instead.'], 422);
+        }
+
+        DB::transaction(function () use ($sale, $data, $toTable) {
+            $fromTable = $sale->table_number;
+
+            $sale->update(['table_number' => $data['to_table_number']]);
+
+            // Free the source table if no other draft orders remain
+            if ($fromTable) {
+                $remaining = Sale::where('branch_id', $sale->branch_id)
+                    ->where('table_number', $fromTable)
+                    ->where('status', 'draft')
+                    ->count();
+                if ($remaining === 0) {
+                    Table::where('branch_id', $sale->branch_id)
+                        ->where('table_number', $fromTable)
+                        ->update(['status' => 'available']);
+                }
+            }
+
+            $toTable->update(['status' => 'occupied']);
+
+            AuditLog::record('sale_transferred', "Order {$sale->invoice_number} transferred from {$fromTable} to {$data['to_table_number']}", $sale);
+        });
+
+        return response()->json($sale->fresh()->load(['items.product', 'customer', 'waiter:id,name']));
+    }
+
+    public function merge(Request $request, Sale $sale)
+    {
+        $this->authorizeBranch($sale->branch_id);
+
+        if ($sale->status !== 'draft') {
+            return response()->json(['message' => 'Only draft orders can be merged.'], 422);
+        }
+
+        $data = $request->validate([
+            'merge_sale_id' => 'required|integer|exists:sales,id',
+        ]);
+
+        if ((int) $data['merge_sale_id'] === $sale->id) {
+            return response()->json(['message' => 'Cannot merge a sale into itself.'], 422);
+        }
+
+        $childSale = Sale::find($data['merge_sale_id']);
+        $this->authorizeBranch($childSale->branch_id);
+
+        if ($childSale->status !== 'draft') {
+            return response()->json(['message' => 'The order being merged must also be a draft.'], 422);
+        }
+
+        DB::transaction(function () use ($sale, $childSale) {
+            // Move items from child to parent
+            SaleItem::where('sale_id', $childSale->id)->update(['sale_id' => $sale->id]);
+
+            // Recalculate parent totals
+            $sale->refresh();
+            $newSubtotal = SaleItem::where('sale_id', $sale->id)->sum('total');
+            $sale->update([
+                'subtotal'       => $newSubtotal,
+                'total'          => $newSubtotal - $sale->discount + $sale->tax + $sale->service_charge + $sale->delivery_fee,
+                'parent_sale_id' => null,
+            ]);
+
+            // Mark child as merged (soft-delete with audit)
+            $childSale->update(['parent_sale_id' => $sale->id, 'status' => 'merged']);
+
+            // Free child's table if applicable
+            if ($childSale->table_number) {
+                Table::where('branch_id', $childSale->branch_id)
+                    ->where('table_number', $childSale->table_number)
+                    ->update(['status' => 'available']);
+            }
+
+            AuditLog::record('sale_merged', "Order {$childSale->invoice_number} merged into {$sale->invoice_number}", $sale);
+        });
+
+        return response()->json($sale->fresh()->load(['items.product', 'customer', 'waiter:id,name']));
+    }
+
+    public function split(Request $request, Sale $sale)
+    {
+        $this->authorizeBranch($sale->branch_id);
+
+        if ($sale->status !== 'draft') {
+            return response()->json(['message' => 'Only draft orders can be split.'], 422);
+        }
+
+        $data = $request->validate([
+            'items'              => 'required|array|min:1',
+            'items.*.sale_item_id' => 'required|integer|exists:sale_items,id',
+            'items.*.quantity'   => 'required|numeric|min:0.001',
+        ]);
+
+        DB::transaction(function () use ($sale, $data, $request) {
+            // Generate a new invoice number for the split sale
+            $invPrefix = 'INV-' . now()->format('Ymd') . '-';
+            $lastInv   = Sale::withTrashed()
+                ->whereDate('created_at', today())
+                ->where('invoice_number', 'like', $invPrefix . '%')
+                ->max('invoice_number');
+            $invNext   = $lastInv ? ((int) substr($lastInv, -4)) + 1 : 1;
+            $newInvoice = $invPrefix . str_pad($invNext, 4, '0', STR_PAD_LEFT);
+
+            $newSale = Sale::create([
+                'branch_id'      => $sale->branch_id,
+                'invoice_number' => $newInvoice,
+                'user_id'        => $request->user()->id,
+                'waiter_id'      => $sale->waiter_id,
+                'table_number'   => $sale->table_number,
+                'order_type'     => $sale->order_type,
+                'guest_count'    => null,
+                'status'         => 'draft',
+                'payment_status' => 'pending',
+                'subtotal'       => 0,
+                'discount'       => 0,
+                'tax'            => 0,
+                'service_charge' => 0,
+                'delivery_fee'   => 0,
+                'total'          => 0,
+                'amount_paid'    => 0,
+                'sold_at'        => now(),
+            ]);
+
+            $movedTotal = 0;
+            foreach ($data['items'] as $splitItem) {
+                $originalItem = SaleItem::where('id', $splitItem['sale_item_id'])
+                    ->where('sale_id', $sale->id)
+                    ->first();
+
+                if (!$originalItem) continue;
+
+                $splitQty     = (float) $splitItem['quantity'];
+                $remainingQty = $originalItem->quantity - $splitQty;
+
+                $splitLineTotal = ($originalItem->unit_price * $splitQty);
+
+                SaleItem::create([
+                    'sale_id'    => $newSale->id,
+                    'product_id' => $originalItem->product_id,
+                    'quantity'   => $splitQty,
+                    'unit_price' => $originalItem->unit_price,
+                    'discount'   => 0,
+                    'serving_ml' => $originalItem->serving_ml,
+                    'total'      => $splitLineTotal,
+                ]);
+
+                $movedTotal += $splitLineTotal;
+
+                if ($remainingQty <= 0) {
+                    $originalItem->delete();
+                } else {
+                    $originalItem->update([
+                        'quantity' => $remainingQty,
+                        'total'    => $originalItem->unit_price * $remainingQty,
+                    ]);
+                }
+            }
+
+            // Recalculate both sales
+            $newSale->update(['subtotal' => $movedTotal, 'total' => $movedTotal]);
+
+            $remainingSubtotal = SaleItem::where('sale_id', $sale->id)->sum('total');
+            $sale->update([
+                'subtotal' => $remainingSubtotal,
+                'total'    => $remainingSubtotal - $sale->discount + $sale->tax + $sale->service_charge,
+            ]);
+
+            AuditLog::record('sale_split', "Order {$sale->invoice_number} split → new order {$newInvoice}", $sale);
+        });
+
+        return response()->json([
+            'original' => $sale->fresh()->load(['items.product']),
+            'new_sale' => Sale::where('branch_id', $sale->branch_id)
+                ->latest()->first()->load(['items.product']),
+        ]);
+    }
+
+    public function updateDeliveryStatus(Request $request, Sale $sale)
+    {
+        $this->authorizeBranch($sale->branch_id);
+
+        if ($sale->order_type !== 'delivery') {
+            return response()->json(['message' => 'This order is not a delivery order.'], 422);
+        }
+
+        $data = $request->validate([
+            'delivery_status' => 'required|in:pending,assigned,on_the_way,delivered',
+        ]);
+
+        $sale->update(['delivery_status' => $data['delivery_status']]);
+        AuditLog::record('delivery_status_updated', "Delivery status → {$data['delivery_status']} on {$sale->invoice_number}", $sale);
+
+        return response()->json($sale->only(['id', 'invoice_number', 'delivery_status']));
     }
 
     private function authorizeBranch(?int $branchId): void

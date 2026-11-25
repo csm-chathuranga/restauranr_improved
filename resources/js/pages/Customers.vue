@@ -40,10 +40,7 @@
       </table>
       <div class="px-4 py-3 border-t flex justify-between text-sm text-gray-600">
         <span>{{ customers.total ?? 0 }} customers</span>
-        <div class="flex gap-2">
-          <button @click="page--; fetch()" :disabled="page<=1" class="btn-secondary py-1 px-3 text-xs disabled:opacity-40">Prev</button>
-          <button @click="page++; fetch()" :disabled="page>=customers.last_page" class="btn-secondary py-1 px-3 text-xs disabled:opacity-40">Next</button>
-        </div>
+        <Pagination :page="page" :last-page="customers.last_page ?? 1" @change="p => { page = p; fetch() }" />
       </div>
     </div>
 
@@ -115,6 +112,7 @@
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { PlusIcon, PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'

@@ -100,10 +100,7 @@
       </table>
       <div class="px-4 py-3 border-t flex items-center justify-between text-sm text-gray-600">
         <span>{{ damages.from || 0 }}-{{ damages.to || 0 }} of {{ damages.total || 0 }}</span>
-        <div class="flex gap-2">
-          <button class="btn-secondary py-1 px-3 text-xs disabled:opacity-40" :disabled="page <= 1" @click="prev">Prev</button>
-          <button class="btn-secondary py-1 px-3 text-xs disabled:opacity-40" :disabled="page >= (damages.last_page || 1)" @click="next">Next</button>
-        </div>
+        <Pagination :page="page" :last-page="damages.last_page || 1" @change="p => { page = p; reload() }" />
       </div>
     </div>
 
@@ -147,6 +144,7 @@
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { reactive, ref, onMounted } from 'vue'
 import axios from 'axios'
 
@@ -190,7 +188,7 @@ function statusBadge(status) {
 }
 
 async function loadProducts() {
-  const productRes = await axios.get('/api/products', { params: { per_page: 300 } })
+  const productRes = await axios.get('/api/products', { params: { per_page: 300, include_ingredients: 1 } })
   products.value = productRes.data.data
 }
 
@@ -214,17 +212,6 @@ function clearFilters() {
   reload()
 }
 
-function prev() {
-  if (page.value <= 1) return
-  page.value -= 1
-  reload()
-}
-
-function next() {
-  if (page.value >= (damages.value.last_page || 1)) return
-  page.value += 1
-  reload()
-}
 
 async function submit() {
   saving.value = true

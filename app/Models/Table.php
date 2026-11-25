@@ -9,10 +9,18 @@ class Table extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['branch_id', 'table_number', 'capacity', 'status', 'notes'];
+    protected $fillable = [
+        'branch_id', 'table_number', 'capacity', 'status', 'notes',
+        'pos_x', 'pos_y', 'width', 'height', 'shape', 'section', 'rotation',
+    ];
 
     protected $casts = [
         'capacity' => 'integer',
+        'pos_x'    => 'integer',
+        'pos_y'    => 'integer',
+        'width'    => 'integer',
+        'height'   => 'integer',
+        'rotation' => 'integer',
     ];
 
     public function branch()

@@ -69,6 +69,35 @@ class Product extends Model
         return $this->stock_quantity <= $this->min_stock_level;
     }
 
+    public const INGREDIENT_TYPE = 'Ingredient';
+
+    // Ingredients that go into a dish; stock-tracked but never sold directly
+    public function recipeItems()
+    {
+        return $this->hasMany(RecipeItem::class, 'product_id');
+    }
+
+    // Recipe lines where this product is the ingredient
+    public function usedInRecipes()
+    {
+        return $this->hasMany(RecipeItem::class, 'ingredient_id');
+    }
+
+    public function isIngredient(): bool
+    {
+        return strtolower((string) $this->product_type) === strtolower(self::INGREDIENT_TYPE);
+    }
+
+    // How many servings the current ingredient stock allows; null when the dish has no recipe
+    public function servingsAvailable(): ?int
+    {
+        $lines = $this->relationLoaded('recipeItems') ? $this->recipeItems : $this->recipeItems()->with('ingredient:id,stock_quantity')->get();
+        $lines = $lines->filter(fn($l) => $l->quantity > 0 && $l->ingredient);
+        if ($lines->isEmpty()) return null;
+
+        return (int) max(0, floor($lines->map(fn($l) => $l->ingredient->stock_quantity / $l->quantity)->min()));
+    }
+
     public function isStockTracked(): bool
     {
         return strtolower((string) $this->product_type) !== 'food';

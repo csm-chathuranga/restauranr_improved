@@ -214,17 +214,7 @@
           Showing <strong class="text-gray-700">{{ sales.from ?? 0 }}–{{ sales.to ?? 0 }}</strong>
           of <strong class="text-gray-700">{{ sales.total ?? 0 }}</strong> records
         </span>
-        <div class="flex items-center gap-1">
-          <button @click="page--; fetchData()" :disabled="page<=1"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border border-gray-200 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            <ChevronLeftIcon class="w-3.5 h-3.5" /> Prev
-          </button>
-          <span class="px-3 py-1.5 text-xs font-semibold text-gray-700">Page {{ page }} / {{ sales.last_page ?? 1 }}</span>
-          <button @click="page++; fetchData()" :disabled="page>=(sales.last_page ?? 1)"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border border-gray-200 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            Next <ChevronRightIcon class="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <Pagination :page="page" :last-page="sales.last_page ?? 1" @change="p => { page = p; fetchData() }" />
       </div>
     </div>
 
@@ -233,6 +223,7 @@
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
@@ -240,7 +231,7 @@ import { useUiStore } from '@/stores/ui'
 import {
   PlusIcon, TrashIcon, EyeIcon, MagnifyingGlassIcon,
   ReceiptPercentIcon, BanknotesIcon, CheckCircleIcon, PrinterIcon,
-  ChartBarIcon, ArrowPathIcon, ChevronLeftIcon, ChevronRightIcon, PencilSquareIcon,
+  ChartBarIcon, ArrowPathIcon, PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 

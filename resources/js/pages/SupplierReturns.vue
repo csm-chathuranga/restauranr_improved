@@ -164,7 +164,7 @@ async function load() {
   const [retRes, supRes, prodRes] = await Promise.all([
     axios.get('/api/supplier-returns'),
     axios.get('/api/suppliers/all'),
-    axios.get('/api/products', { params: { per_page: 300 } }),
+    axios.get('/api/products', { params: { per_page: 300, include_ingredients: 1 } }),
   ])
   returns.value = retRes.data
   suppliers.value = supRes.data

@@ -42,6 +42,19 @@
             class="form-input" />
         </div>
         <div>
+          <label class="form-label">Shape</label>
+          <select v-model="newTable.shape" class="form-input">
+            <option value="rectangle">Rectangle</option>
+            <option value="circle">Circle</option>
+            <option value="bar">Bar</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Section</label>
+          <input v-model="newTable.section" type="text" placeholder="e.g., Main, Terrace"
+            class="form-input" />
+        </div>
+        <div>
           <label class="form-label">Status</label>
           <select v-model="newTable.status" class="form-input">
             <option value="available">Available</option>
@@ -115,6 +128,8 @@
             <tr>
               <th class="table-th w-32">Table Number</th>
               <th class="table-th w-20">Capacity</th>
+              <th class="table-th w-24">Section</th>
+              <th class="table-th w-24">Shape</th>
               <th class="table-th w-32">Status</th>
               <th class="table-th">Notes</th>
               <th class="table-th w-28 text-center">Actions</th>
@@ -122,7 +137,7 @@
           </thead>
           <tbody class="divide-y divide-gray-100">
             <tr v-if="loading">
-              <td colspan="5" class="table-td text-center py-10 text-gray-400">
+              <td colspan="7" class="table-td text-center py-10 text-gray-400">
                 <div class="flex items-center justify-center gap-2">
                   <ArrowPathIcon class="w-4 h-4 animate-spin" /> Loading…
                 </div>
@@ -143,6 +158,22 @@
                     <input v-model.number="editForm.capacity" type="number" min="1" class="form-input text-sm w-20" />
                   </div>
                   <span v-else class="font-medium text-gray-700">{{ t.capacity }} seats</span>
+                </td>
+                <td class="table-td text-sm text-gray-600">
+                  <div v-if="editingId === t.id">
+                    <input v-model="editForm.section" type="text" class="form-input text-sm w-24" placeholder="Section" />
+                  </div>
+                  <span v-else>{{ t.section || '—' }}</span>
+                </td>
+                <td class="table-td text-sm text-gray-600">
+                  <div v-if="editingId === t.id">
+                    <select v-model="editForm.shape" class="form-input text-sm">
+                      <option value="rectangle">Rectangle</option>
+                      <option value="circle">Circle</option>
+                      <option value="bar">Bar</option>
+                    </select>
+                  </div>
+                  <span v-else class="capitalize">{{ t.shape || 'rectangle' }}</span>
                 </td>
                 <td class="table-td">
                   <div v-if="editingId === t.id">
@@ -179,7 +210,7 @@
                 </td>
               </tr>
               <tr v-if="!tables.data?.length">
-                <td colspan="5" class="table-td text-center py-12">
+                <td colspan="7" class="table-td text-center py-12">
                   <div class="flex flex-col items-center gap-2 text-gray-400">
                     <TableCellsIcon class="w-10 h-10 opacity-30" />
                     <span>No tables found</span>
@@ -198,17 +229,7 @@
           Showing <strong class="text-gray-700">{{ tables.from ?? 0 }}–{{ tables.to ?? 0 }}</strong>
           of <strong class="text-gray-700">{{ tables.total ?? 0 }}</strong> records
         </span>
-        <div class="flex items-center gap-1">
-          <button @click="page--; fetchData()" :disabled="page<=1"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border border-gray-200 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            <ChevronLeftIcon class="w-3.5 h-3.5" /> Prev
-          </button>
-          <span class="px-3 py-1.5 text-xs font-semibold text-gray-700">Page {{ page }} / {{ tables.last_page ?? 1 }}</span>
-          <button @click="page++; fetchData()" :disabled="page>=(tables.last_page ?? 1)"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border border-gray-200 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            Next <ChevronRightIcon class="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <Pagination :page="page" :last-page="tables.last_page ?? 1" @change="p => { page = p; fetchData() }" />
       </div>
     </div>
 
@@ -217,11 +238,12 @@
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { ref, computed, onMounted, reactive } from 'vue'
 import axios from 'axios'
 import {
   PlusIcon, TrashIcon, MagnifyingGlassIcon,
-  CheckCircleIcon, ArrowPathIcon, ChevronLeftIcon, ChevronRightIcon,
+  CheckCircleIcon, ArrowPathIcon,
   UserIcon, UserPlusIcon, CalendarDaysIcon, PencilSquareIcon,
   TableCellsIcon,
 } from '@heroicons/vue/24/outline'
@@ -244,6 +266,8 @@ const newTable = reactive({
   table_number: '',
   capacity: 4,
   status: 'available',
+  shape: 'rectangle',
+  section: '',
   notes: '',
 })
 
@@ -276,11 +300,15 @@ async function saveNewTable() {
       table_number: newTable.table_number,
       capacity: newTable.capacity,
       status: newTable.status,
+      shape: newTable.shape,
+      section: newTable.section || null,
       notes: newTable.notes || null,
     })
     newTable.table_number = ''
     newTable.capacity = 4
     newTable.status = 'available'
+    newTable.shape = 'rectangle'
+    newTable.section = ''
     newTable.notes = ''
     showNewForm.value = false
     fetchData()
@@ -297,6 +325,8 @@ function startEdit(table) {
     table_number: table.table_number,
     capacity: table.capacity,
     status: table.status,
+    shape: table.shape || 'rectangle',
+    section: table.section || '',
     notes: table.notes,
   })
 }

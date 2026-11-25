@@ -99,6 +99,16 @@ class User extends Authenticatable
         return $this->role === 'store_keeper';
     }
 
+    public function isWaiter(): bool
+    {
+        return $this->role === 'waiter';
+    }
+
+    public function isKitchen(): bool
+    {
+        return $this->role === 'kitchen';
+    }
+
     public function branch()
     {
         return $this->belongsTo(Branch::class);

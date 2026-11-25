@@ -18,6 +18,9 @@ class RoleFeature extends Model
         'menu_categories',
         'guests',
         'tables',
+        'floor_plan',
+        'kitchen_orders',
+        'reservations',
         'suppliers',
         'open_bottles',
         'my_shift',
@@ -33,7 +36,7 @@ class RoleFeature extends Model
         'shift_summary',
         'damages',
         'stock_ledger',
-        'users_roles',
+        'ingredients',
         'settings',
         'hotel_rooms',
         'hotel_bookings',
@@ -46,15 +49,22 @@ class RoleFeature extends Model
         'owner' => self::ALL_FEATURES,
         'manager' => [
             'dashboard', 'pos_billing', 'products', 'menu_categories',
-            'guests', 'tables', 'suppliers', 'open_bottles', 'reports', 'daily_report',
-            'purchases', 'shift_summary', 'damages', 'settings',
+            'guests', 'tables', 'floor_plan', 'kitchen_orders', 'reservations',
+            'suppliers', 'open_bottles', 'reports', 'daily_report',
+            'purchases', 'shift_summary', 'damages', 'ingredients', 'settings',
             'hotel_rooms', 'hotel_bookings', 'hotel_reports',
         ],
         'cashier' => [
             'dashboard', 'pos_billing', 'open_bottles', 'my_shift',
         ],
         'store_keeper' => [
-            'dashboard', 'products', 'purchases', 'stock_ledger',
+            'dashboard', 'products', 'purchases', 'stock_ledger', 'ingredients',
+        ],
+        'waiter' => [
+            'dashboard', 'pos_billing', 'tables', 'floor_plan',
+        ],
+        'kitchen' => [
+            'dashboard', 'kitchen_orders',
         ],
     ];
 

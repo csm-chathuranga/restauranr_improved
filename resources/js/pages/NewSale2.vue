@@ -30,18 +30,18 @@
           </svg>
         </button>
         <button
-          v-for="draft in draftBills"
+          v-for="draft in visibleDrafts"
           :key="draft.id"
-          @click="loadDraft(draft)"
+          @click="onDraftTabClick(draft)"
           class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors"
-          :class="activeDraftId === draft.id
+          :class="(isWalkIn ? activeDraftId === draft.id : form.table_number === String(draft.table_number))
             ? 'bg-amber-500 text-white border-amber-500'
             : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50'"
         >
           <span class="font-mono">{{ draft.table_number || draft.invoice_number }}</span>
         </button>
         <button
-          v-if="activeDraftId"
+          v-if="activeDraftId && isWalkIn"
           @click="resetForm"
           class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-200"
         >
@@ -53,8 +53,28 @@
     <!-- Main layout: product grid + category sidebar + bill -->
     <div class="flex flex-1 overflow-hidden">
 
+      <!-- ── DINE-IN TABLE SELECTION (dine_in and no table selected) ── -->
+      <DineInFloor v-if="showFloor" @select="tn => form.table_number = tn" />
+
+      <!-- ── DINE-IN ORDER SCREEN (table selected) ── -->
+      <DineInOrder
+        v-if="showDineInOrder"
+        :key="form.table_number"
+        :table-number="form.table_number"
+        :capacity="selectedTableCapacity"
+        :products="products"
+        :customers="customers"
+        :taxes="taxes"
+        :draft-bills="draftBills"
+        :loading-products="loadingProducts"
+        @back="form.table_number = ''"
+        @saved="onDineInSaved"
+        @printed="id => router.push(`/sales/${id}`)"
+        @paid="onDineInPaid"
+      />
+
       <!-- ── LEFT: Product browser (collapsible) ── -->
-      <div v-show="showProductPanel" class="flex flex-col flex-1 overflow-hidden bg-white border-r border-gray-200">
+      <div v-show="showProductPanel && isWalkIn" class="flex flex-col flex-1 overflow-hidden bg-white border-r border-gray-200">
 
         <!-- Search + barcode -->
         <div class="flex gap-2 px-3 py-2.5 shrink-0 bg-white border-b border-gray-200">
@@ -243,7 +263,7 @@
       </div>
 
       <!-- ── Category sidebar (between grid and cart) ── -->
-      <div class="flex flex-col w-[10rem] overflow-y-auto shrink-0 bg-white border-l border-r border-gray-200">
+      <div v-if="isWalkIn" class="flex flex-col w-[10rem] overflow-y-auto shrink-0 bg-white border-l border-r border-gray-200">
         <!-- Category buttons — 2 per row -->
         <div class="grid grid-cols-2">
           <button
@@ -282,7 +302,7 @@
       </div>
 
       <!-- ── RIGHT: Order panel ── -->
-      <div class="flex flex-col w-[42%] shrink-0 overflow-hidden" style="background:#f8fafc">
+      <div v-if="isWalkIn" class="flex flex-col w-[42%] shrink-0 overflow-hidden" style="background:#f8fafc">
 
         <!-- Cart header strip -->
         <div class="px-3 py-2 shrink-0 flex items-center justify-between bg-white border-b border-gray-200">
@@ -969,6 +989,8 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
+import DineInOrder from '@/components/DineInOrder.vue'
+import DineInFloor from '@/components/DineInFloor.vue'
 import {
   ArrowLeftIcon, PlusIcon, XMarkIcon, TrashIcon,
   ShoppingCartIcon, CheckCircleIcon, ArrowPathIcon,
@@ -1048,6 +1070,34 @@ const newCustomer         = reactive({ name: '', phone: '', email: '' })
 const showPricingDetails  = ref(false)
 const showTablePicker     = ref(false)
 const showProductPanel    = ref(true)
+const showFloor           = computed(() => form.order_type === 'dine_in' && !form.table_number)
+const showDineInOrder     = computed(() => form.order_type === 'dine_in' && !!form.table_number)
+const isWalkIn            = computed(() => form.order_type !== 'dine_in')
+const selectedTableCapacity = computed(() =>
+  Number(availableTables.value.find(t => String(t.table_number) === String(form.table_number))?.capacity || 0)
+)
+const visibleDrafts       = computed(() =>
+  isWalkIn.value ? draftBills.value : draftBills.value.filter(d => d.table_number)
+)
+
+function onDraftTabClick(draft) {
+  if (isWalkIn.value) return loadDraft(draft)
+  form.table_number = String(draft.table_number)
+}
+
+async function onDineInSaved() {
+  form.table_number = ''
+  await refreshDrafts()
+}
+
+function onDineInPaid(saleId) {
+  lastReceiptId.value = String(saleId)
+  localStorage.setItem('pos_last_receipt_id', String(saleId))
+  router.push(`/sales/${saleId}`)
+}
+
+// The dine-in table belongs to the dine-in screen only; never carry it into the walk-in bill
+watch(() => form.order_type, () => { form.table_number = '' })
 
 const barcodeInput = ref('')
 const barcodeError = ref('')
@@ -1715,7 +1765,7 @@ function isTypingInInput() {
 }
 
 function handleKeydown(e) {
-  if (!kbShortcutsEnabled.value) return
+  if (!kbShortcutsEnabled.value || !isWalkIn.value) return
   if (e.key === 'F1') { e.preventDefault(); searchInputRef.value?.focus(); searchInputRef.value?.select(); return }
   if (e.key === 'F2') { e.preventDefault(); barcodeInputRef.value?.focus(); barcodeInputRef.value?.select(); return }
   if (e.key === 'F3') { e.preventDefault(); amountInputRef.value?.focus(); amountInputRef.value?.select(); return }
@@ -1829,11 +1879,17 @@ onMounted(async () => {
 
   const draftId = route.query.draft
   if (draftId) {
-    const draft = draftBills.value.find(d => d.id == draftId)
-    if (draft) {
-      await loadDraft(draft)
+    let draft = draftBills.value.find(d => d.id == draftId)
+    if (!draft) {
+      try { draft = (await axios.get(`/api/sales/${draftId}`)).data } catch { draft = null }
+    }
+    if (draft?.order_type === 'dine_in' && draft.table_number) {
+      // Dine-in bills open on their table screen, which resumes the held order itself
+      form.order_type = 'dine_in'
+      await nextTick()   // let the order-type watcher clear the table first
+      form.table_number = String(draft.table_number)
     } else {
-      await loadDraft({ id: draftId })
+      await loadDraft(draft ?? { id: draftId })
     }
   }
 

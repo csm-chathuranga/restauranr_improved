@@ -111,10 +111,7 @@
       <!-- Pagination -->
       <div v-if="!loading" class="px-4 py-3 border-t border-gray-200 flex items-center justify-between text-sm text-gray-600">
         <span>{{ products.from }}–{{ products.to }} of {{ products.total }}</span>
-        <div class="flex gap-2">
-          <button @click="page--; fetchProducts()" :disabled="page <= 1" class="btn-secondary py-1 px-3 text-xs disabled:opacity-40">Prev</button>
-          <button @click="page++; fetchProducts()" :disabled="page >= products.last_page" class="btn-secondary py-1 px-3 text-xs disabled:opacity-40">Next</button>
-        </div>
+        <Pagination :page="page" :last-page="products.last_page ?? 1" @change="p => { page = p; fetchProducts() }" />
       </div>
     </div>
 
@@ -149,6 +146,7 @@
 </template>
 
 <script setup>
+import Pagination from '@/components/Pagination.vue'
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { PencilSquareIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'

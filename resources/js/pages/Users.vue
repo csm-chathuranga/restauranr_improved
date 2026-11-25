@@ -250,6 +250,8 @@ const roleOptions = [
   { value: 'manager', label: 'Manager' },
   { value: 'cashier', label: 'Cashier' },
   { value: 'store_keeper', label: 'Store Keeper' },
+  { value: 'waiter', label: 'Waiter' },
+  { value: 'kitchen', label: 'Kitchen' },
 ]
 
 const form = reactive({
@@ -289,6 +291,8 @@ function roleClass(role) {
     manager: 'bg-amber-100 text-amber-700',
     cashier: 'bg-blue-100 text-blue-700',
     store_keeper: 'bg-emerald-100 text-emerald-700',
+    waiter: 'bg-teal-100 text-teal-700',
+    kitchen: 'bg-orange-100 text-orange-700',
   }[role] ?? 'bg-gray-100 text-gray-700'
 }
 

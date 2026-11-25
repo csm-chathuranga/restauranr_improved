@@ -70,6 +70,16 @@
             <input type="checkbox" v-model="form.enable_variants" class="rounded text-amber-500" />
             Enable shot/serving variants for products in this category
           </label>
+          <div>
+            <label class="form-label">Kitchen Station</label>
+            <select v-model="form.kitchen_station" class="form-input">
+              <option value="none">None (not sent to kitchen)</option>
+              <option value="kitchen">Kitchen</option>
+              <option value="bar">Bar</option>
+              <option value="dessert">Dessert</option>
+              <option value="cold">Cold</option>
+            </select>
+          </div>
           <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
         </div>
         <div class="flex justify-end gap-3 mt-5">
@@ -96,15 +106,15 @@ const saving        = ref(false)
 const error         = ref('')
 const confirmDelete  = ref(null)
 const confirmMessage = ref('')
-const form       = reactive({ name: '', description: '', is_active: true, enable_variants: false })
+const form       = reactive({ name: '', description: '', is_active: true, enable_variants: false, kitchen_station: 'none' })
 
 async function fetch() {
   const { data } = await axios.get('/api/categories', { params: { per_page: 100 } })
   categories.value = data
 }
 
-function openCreate() { editing.value = null; Object.assign(form, { name: '', description: '', is_active: true, enable_variants: false }); showModal.value = true }
-function openEdit(c)  { editing.value = c; Object.assign(form, c); showModal.value = true }
+function openCreate() { editing.value = null; Object.assign(form, { name: '', description: '', is_active: true, enable_variants: false, kitchen_station: 'none' }); showModal.value = true }
+function openEdit(c)  { editing.value = c; Object.assign(form, { kitchen_station: 'none', ...c }); showModal.value = true }
 
 async function save() {
   saving.value = true; error.value = ''

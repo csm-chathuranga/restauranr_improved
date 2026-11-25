@@ -30,6 +30,7 @@ class StockLedger
             'unit' => $product->base_unit ?? $product->unit_type,
             'notes' => $notes,
             'meta' => $meta,
+            'moved_at' => now(),
         ]);
     }
 }
